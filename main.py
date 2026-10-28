@@ -1,8 +1,9 @@
 from kivy.config import Config
 
-Config.set("graphics", "width", "600")
-Config.set("graphics", "height", "600")
-Config.set("graphics", "resizable", "0")
+# ---------- إعدادات النافذة (لازم تكون قبل أي import ثاني من kivy) ----------
+Config.set("graphics", "width", "640")       # عرض النافذة (مربعة)
+Config.set("graphics", "height", "640")      # طول النافذة (مربعة)
+Config.set("graphics", "resizable", "0")     # بيلغي زر التكبير (المربع) وبيمنع تغيير الحجم
 
 import math
 import secrets
@@ -13,6 +14,7 @@ from datetime import datetime, timedelta, timezone
 import requests
 from kivy.app import App
 from kivy.clock import Clock
+from kivy.core.clipboard import Clipboard
 from kivy.core.window import Window
 from kivy.graphics import Color, Line, RoundedRectangle, Triangle
 from kivy.metrics import dp, sp
@@ -23,6 +25,7 @@ from kivy.uix.label import Label
 from kivy.uix.textinput import TextInput
 from kivy.uix.widget import Widget
 
+# ---------- الألوان ----------
 BG_COLOR = (0.043, 0.055, 0.075, 1)
 CARD_COLOR = (0.157, 0.188, 0.255, 1)
 CARD_BORDER = (0.200, 0.235, 0.310, 1)
@@ -39,11 +42,13 @@ ACCENT_LEFT = (0.90, 0.93, 0.97, 1)
 Window.clearcolor = BG_COLOR
 Window.softinput_mode = "below_target"
 
-# ✅ التعديل هون
+# ---------- رابط الـ API ----------
 API_URL = "https://stream-links-server.onrender.com/generate/"
 
+# ---------- مدة الاشتراك ----------
 TRIAL_DURATION_HOURS = 24
 
+# (المفتاح، النص على الزر، عدد الأيام)
 DURATIONS = [
     ("1m", "1 mo", 30),
     ("3m", "3 mo", 90),
@@ -56,6 +61,7 @@ DURATION_DAYS = {key: days for key, _, days in DURATIONS}
 
 
 def build_expiry(mode, duration_key=None):
+    """يرجع dict فيه مدة الاشتراك وتاريخ الانتهاء (UTC) حسب الوضع."""
     now = datetime.now(timezone.utc)
     if mode == "trial":
         return {
@@ -91,6 +97,7 @@ def send_to_api(username, password, mode, duration_key=None):
     threading.Thread(target=_send, daemon=True).start()
 
 
+# ---------- دوال التوليد ----------
 def random_number(length=10):
     first = str(secrets.randbelow(9) + 1)
     rest = "".join(str(secrets.randbelow(10)) for _ in range(length - 1))
@@ -116,6 +123,7 @@ def random_name():
     return secrets.choice(NAMES)
 
 
+# ---------- أيقونة التحديث ----------
 class RefreshIcon(Widget):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -147,6 +155,7 @@ class RefreshIcon(Widget):
             Triangle(points=self._arrow(cx, cy, r, 325, dp(4.5)))
 
 
+# ---------- خانة الإدخال ----------
 class RoundedInput(BoxLayout):
     def __init__(self, text="", hint_text="", **kwargs):
         super().__init__(
@@ -204,6 +213,7 @@ class RoundedInput(BoxLayout):
         self._r_fill.size = (self.width - dp(2), self.height - dp(2))
 
 
+# ---------- زر Generate Random ----------
 class GenerateButton(ButtonBehavior, BoxLayout):
     def __init__(self, **kwargs):
         super().__init__(
@@ -251,6 +261,7 @@ class GenerateButton(ButtonBehavior, BoxLayout):
         self._accent.size = (dp(2), self.height)
 
 
+# ---------- قسم كامل (عنوان + خانة + زر) ----------
 class Section(BoxLayout):
     def __init__(self, title, **kwargs):
         super().__init__(
@@ -260,7 +271,7 @@ class Section(BoxLayout):
             **kwargs,
         )
         self.generator = random_number
-        self.card_ref = None
+        self.card_ref = None  # مرجع للكارد عشان نعرف الـ mode
         self.height = dp(34) + dp(52) + dp(52) + dp(20)
 
         self.title = Label(
@@ -286,11 +297,13 @@ class Section(BoxLayout):
         self.input.text = value
         print("generated:", value)
 
+        # إرسال للـ API إذا كان عندنا مرجع للكارد
         if self.card_ref:
             username = self.card_ref.username.input.text
             password = self.card_ref.password.input.text
             mode = getattr(self.card_ref, "mode", "trial")
             duration_key = getattr(self.card_ref, "duration", DEFAULT_DURATION)
+            # إرسال فقط إذا الاثنين موجودين
             if username and password:
                 send_to_api(username, password, mode, duration_key)
 
@@ -300,6 +313,7 @@ class Section(BoxLayout):
         self.input.text = generator() if autofill else ""
 
 
+# ---------- أزرار اختيار نوع الاشتراك ----------
 class ModeButton(ButtonBehavior, Label):
     def __init__(self, text, font_size=None, **kwargs):
         super().__init__(text=text, font_size=font_size or sp(17), **kwargs)
@@ -320,13 +334,14 @@ class ModeButton(ButtonBehavior, Label):
         self._r.size = self.size
 
 
+# ---------- الكارد ----------
 class Card(BoxLayout):
     def __init__(self, **kwargs):
         super().__init__(
             orientation="vertical",
             size_hint=(0.92, None),
             padding=[dp(22), dp(22), dp(22), dp(26)],
-            spacing=dp(34),
+            spacing=dp(28),
             **kwargs,
         )
         with self.canvas.before:
@@ -348,6 +363,7 @@ class Card(BoxLayout):
         modes.add_widget(self.btn_annual)
         self.add_widget(modes)
 
+        # صف خيارات المدة (بيظهر فقط بالوضع التاني)
         self.durations_bar = BoxLayout(size_hint_y=None, height=dp(40), spacing=dp(6))
         self.duration_buttons = {}
         for key, label, _days in DURATIONS:
@@ -360,17 +376,36 @@ class Card(BoxLayout):
         self.username = Section("Username")
         self.password = Section("Password")
 
+        # ربط الـ Section بالكارد
         self.username.card_ref = self
         self.password.card_ref = self
 
         self.add_widget(self.username)
         self.add_widget(self.password)
 
+        # زر نسخ الكل (اليوزر + الباسورد بكبسة وحدة)
+        self.btn_copy = ModeButton("Copy All")
+        self.btn_copy.size_hint_y = None
+        self.btn_copy.height = dp(46)
+        self.btn_copy.set_active(True)
+        self.btn_copy.bind(on_release=self.copy_all)
+        self.add_widget(self.btn_copy)
+
         self.bind(minimum_height=self.setter("height"))
         Clock.schedule_once(lambda dt: self.set_mode("trial"), 0)
 
+    def copy_all(self, *args):
+        username = self.username.input.text
+        password = self.password.input.text
+        if not username and not password:
+            return
+        Clipboard.copy(f"Username: {username}\nPassword: {password}")
+        self.btn_copy.text = "Copied!"
+        Clock.schedule_once(lambda dt: setattr(self.btn_copy, "text", "Copy All"), 1.5)
+
     def _show_durations(self, show):
         if show and not self._durations_visible:
+            # children مرتبة بالعكس: نحطه مباشرة تحت صف Trial/Annual
             self.add_widget(self.durations_bar, index=len(self.children) - 1)
             self._durations_visible = True
         elif not show and self._durations_visible:
