@@ -52,3 +52,13 @@ async def save_credentials(data: UserCredentials):
 @app.get("/users/", dependencies=[Depends(verify_api_key)])
 async def get_all_users():
     return load_users()
+
+# ✅ endpoint جديد للحذف
+@app.delete("/users/{username}", dependencies=[Depends(verify_api_key)])
+async def delete_user(username: str):
+    users = load_users()
+    new_users = [u for u in users if u["username"] != username]
+    if len(new_users) == len(users):
+        raise HTTPException(status_code=404, detail="اليوزر مو موجود!")
+    save_users(new_users)
+    return {"message": "تم الحذف بنجاح"}
